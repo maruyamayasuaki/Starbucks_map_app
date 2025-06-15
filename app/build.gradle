@@ -1,3 +1,4 @@
+// app/build.gradle
 plugins {
     id 'com.android.application'
     id 'kotlin-android'
@@ -13,6 +14,22 @@ android {
         targetSdk 33
         versionCode 1
         versionName "1.0"
+
+        // local.propertiesからAPIキーを読み込み
+        Properties properties = new Properties()
+        if (rootProject.file("local.properties").exists()) {
+            properties.load(rootProject.file("local.properties").newDataInputStream())
+        }
+        
+        // APIキーをマニフェストプレースホルダーとして設定
+        manifestPlaceholders = [
+            GOOGLE_MAPS_API_KEY: properties.getProperty('GOOGLE_MAPS_API_KEY', ''),
+            GOOGLE_PLACES_API_KEY: properties.getProperty('GOOGLE_PLACES_API_KEY', '')
+        ]
+        
+        // BuildConfigにもAPIキーを追加（コードから参照可能）
+        buildConfigField "String", "GOOGLE_MAPS_API_KEY", "\"${properties.getProperty('GOOGLE_MAPS_API_KEY', '')}\""
+        buildConfigField "String", "GOOGLE_PLACES_API_KEY", "\"${properties.getProperty('GOOGLE_PLACES_API_KEY', '')}\""
     }
 
     buildTypes {
@@ -29,6 +46,10 @@ android {
 
     kotlinOptions {
         jvmTarget = '1.8'
+    }
+    
+    buildFeatures {
+        buildConfig true
     }
 }
 
