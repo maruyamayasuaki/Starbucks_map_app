@@ -20,13 +20,13 @@ android {
         if (rootProject.file("local.properties").exists()) {
             properties.load(rootProject.file("local.properties").newDataInputStream())
         }
-        
+
         // APIキーをマニフェストプレースホルダーとして設定
         manifestPlaceholders = [
-            GOOGLE_MAPS_API_KEY: properties.getProperty('GOOGLE_MAPS_API_KEY', ''),
-            GOOGLE_PLACES_API_KEY: properties.getProperty('GOOGLE_PLACES_API_KEY', '')
+                GOOGLE_MAPS_API_KEY: properties.getProperty('GOOGLE_MAPS_API_KEY', ''),
+                GOOGLE_PLACES_API_KEY: properties.getProperty('GOOGLE_PLACES_API_KEY', '')
         ]
-        
+
         // BuildConfigにもAPIキーを追加（コードから参照可能）
         buildConfigField "String", "GOOGLE_MAPS_API_KEY", "\"${properties.getProperty('GOOGLE_MAPS_API_KEY', '')}\""
         buildConfigField "String", "GOOGLE_PLACES_API_KEY", "\"${properties.getProperty('GOOGLE_PLACES_API_KEY', '')}\""
@@ -47,7 +47,7 @@ android {
     kotlinOptions {
         jvmTarget = '1.8'
     }
-    
+
     buildFeatures {
         buildConfig true
     }
@@ -59,4 +59,10 @@ dependencies {
     implementation 'com.google.android.material:material:1.7.0'
     implementation 'com.google.android.gms:play-services-maps:18.1.0'
     implementation 'com.google.android.libraries.places:places:3.1.0'
+
+    // 検索機能とUI拡張のための追加依存関係
+    implementation 'androidx.recyclerview:recyclerview:1.2.1'
+    implementation 'androidx.cardview:cardview:1.0.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.5.1'
 }

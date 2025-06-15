@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_500">#6200EE</color>
-    <color name="purple_700">#3700B3</color>
-    <color name="teal_200">#03DAC5</color>
-    <color name="teal_700">#018786</color>
+    <!-- Starbucksのブランドカラー -->
+    <color name="starbucks_green">#00704A</color>
+    <color name="starbucks_green_light">#00A862</color>
+    <color name="starbucks_green_dark">#004F35</color>
+    <color name="starbucks_cream">#F7F7F7</color>
+    <color name="starbucks_gold">#D4AF37</color>
+
+    <!-- システムカラー -->
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
+    <color name="gray_light">#E0E0E0</color>
+    <color name="gray_dark">#424242</color>
 </resources>
