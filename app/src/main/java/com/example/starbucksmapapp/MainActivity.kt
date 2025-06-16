@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SearchView
 import androidx.core.app.ActivityCompat
@@ -86,15 +87,16 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
 
         searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             override fun onQueryTextSubmit(query: String?): Boolean {
-                query?.let { searchStarbucks(it) }
+                query?.let {
+                    searchLocationAndStarbucks(it)
+                    searchView.clearFocus()
+                }
                 return true
             }
 
             override fun onQueryTextChange(newText: String?): Boolean {
                 if (newText.isNullOrBlank()) {
                     hideSearchResults()
-                } else if (newText.length >= 2) {
-                    searchStarbucks(newText)
                 }
                 return true
             }
@@ -109,6 +111,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         findViewById<android.view.View>(R.id.btn_current_location).setOnClickListener {
             currentLocation?.let { location ->
                 map.animateCamera(CameraUpdateFactory.newLatLngZoom(location, 15f))
+                loadNearbyStarbucks(location)
             } ?: run {
                 enableMyLocation()
             }
@@ -122,18 +125,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         map.uiSettings.isZoomControlsEnabled = true
         map.uiSettings.isMyLocationButtonEnabled = false // カスタムボタンを使用
 
+        // マーカークリックリスナーを設定
+        map.setOnMarkerClickListener { marker ->
+            marker.showInfoWindow()
+            true
+        }
+
         // 情報ウィンドウのクリックリスナーを設定
         map.setOnInfoWindowClickListener { marker ->
             marker.tag?.let { tag ->
-                val placeId = tag as String
-                val placeName = marker.title ?: "Unknown Starbucks"
-
-                if (stampsManager.hasStamp(placeId)) {
-                    Toast.makeText(this, "すでにこの店舗のスタンプを獲得済みです", Toast.LENGTH_SHORT).show()
-                } else {
-                    stampsManager.addStamp(placeId, placeName)
-                    Toast.makeText(this, "スタンプを獲得しました: $placeName", Toast.LENGTH_SHORT).show()
-                }
+                val storeInfo = tag as StoreInfo
+                showStoreDetailsDialog(storeInfo)
             }
         }
 
@@ -174,6 +176,112 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         }
     }
 
+    // 場所名での検索機能を改良
+    private fun searchLocationAndStarbucks(locationName: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val apiKey = BuildConfig.GOOGLE_PLACES_API_KEY
+
+                // まず場所を検索
+                val encodedLocation = URLEncoder.encode(locationName, "UTF-8")
+                val geocodeUrl = "https://maps.googleapis.com/maps/api/geocode/json?address=$encodedLocation&key=$apiKey"
+
+                val geocodeResponse = URL(geocodeUrl).readText()
+                val geocodeJson = JSONObject(geocodeResponse)
+                val geocodeResults = geocodeJson.getJSONArray("results")
+
+                if (geocodeResults.length() > 0) {
+                    val firstResult = geocodeResults.getJSONObject(0)
+                    val geometry = firstResult.getJSONObject("geometry")
+                    val location = geometry.getJSONObject("location")
+                    val lat = location.getDouble("lat")
+                    val lng = location.getDouble("lng")
+                    val searchLocation = LatLng(lat, lng)
+
+                    withContext(Dispatchers.Main) {
+                        // 地図をその場所に移動
+                        map.animateCamera(CameraUpdateFactory.newLatLngZoom(searchLocation, 13f))
+
+                        // その場所周辺のスターバックスを検索
+                        searchStarbucksNearLocation(searchLocation, locationName)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "場所が見つかりませんでした", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "検索に失敗しました: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    // 指定された場所周辺のスターバックスを検索
+    private fun searchStarbucksNearLocation(location: LatLng, locationName: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val apiKey = BuildConfig.GOOGLE_PLACES_API_KEY
+                val radius = 5000 // 5km半径で検索
+
+                val placesUrl = "https://maps.googleapis.com/maps/api/place/nearbysearch/json" +
+                        "?location=${location.latitude},${location.longitude}" +
+                        "&radius=$radius" +
+                        "&keyword=スターバックス" +
+                        "&key=$apiKey"
+
+                val response = URL(placesUrl).readText()
+                val jsonObject = JSONObject(response)
+                val results = jsonObject.getJSONArray("results")
+
+                val stores = mutableListOf<StarbucksStore>()
+
+                for (i in 0 until results.length()) {
+                    val place = results.getJSONObject(i)
+                    val name = place.getString("name")
+
+                    if (isStarbucks(name)) {
+                        val placeId = place.getString("place_id")
+                        val address = place.optString("vicinity", "住所不明")
+                        val geometry = place.getJSONObject("geometry")
+                        val locationObj = geometry.getJSONObject("location")
+                        val lat = locationObj.getDouble("lat")
+                        val lng = locationObj.getDouble("lng")
+                        val rating = place.optDouble("rating", 0.0)
+
+                        stores.add(StarbucksStore(name, address, placeId, lat, lng, rating))
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    clearMarkers()
+
+                    if (stores.isNotEmpty()) {
+                        // マーカーを追加
+                        stores.forEach { store ->
+                            addStarbucksMarker(store)
+                        }
+
+                        Toast.makeText(this@MainActivity,
+                            "$locationName 周辺で${stores.size}店舗のスターバックスを発見しました",
+                            Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@MainActivity,
+                            "$locationName 周辺にスターバックスが見つかりませんでした",
+                            Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainActivity, "スターバックス検索に失敗しました: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     private fun loadNearbyStarbucks(location: LatLng) {
         val placeFields = listOf(Place.Field.ID, Place.Field.NAME, Place.Field.LAT_LNG, Place.Field.RATING, Place.Field.USER_RATINGS_TOTAL)
         val request = FindCurrentPlaceRequest.newInstance(placeFields)
@@ -191,7 +299,15 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 val place = placeLikelihood.place
                 if (isStarbucks(place.name)) {
                     place.latLng?.let { pos ->
-                        addStarbucksMarker(place, pos)
+                        val store = StarbucksStore(
+                            name = place.name ?: "Unknown Starbucks",
+                            address = "住所情報なし",
+                            placeId = place.id ?: "",
+                            latitude = pos.latitude,
+                            longitude = pos.longitude,
+                            rating = place.rating ?: 0.0
+                        )
+                        addStarbucksMarker(store)
                         starbucksCount++
                     }
                 }
@@ -207,53 +323,6 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 Toast.makeText(this, "Places API エラー: ${exception.message}", Toast.LENGTH_LONG).show()
             } else {
                 Toast.makeText(this, "スターバックスの検索に失敗しました", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    private fun searchStarbucks(query: String) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                val apiKey = BuildConfig.GOOGLE_PLACES_API_KEY
-                val encodedQuery = URLEncoder.encode("$query スターバックス", "UTF-8")
-                val url = "https://maps.googleapis.com/maps/api/place/textsearch/json?query=$encodedQuery&key=$apiKey"
-
-                val response = URL(url).readText()
-                val jsonObject = JSONObject(response)
-                val results = jsonObject.getJSONArray("results")
-
-                val stores = mutableListOf<StarbucksStore>()
-
-                for (i in 0 until results.length()) {
-                    val place = results.getJSONObject(i)
-                    val name = place.getString("name")
-
-                    if (isStarbucks(name)) {
-                        val placeId = place.getString("place_id")
-                        val address = place.optString("formatted_address", "住所不明")
-                        val geometry = place.getJSONObject("geometry")
-                        val location = geometry.getJSONObject("location")
-                        val lat = location.getDouble("lat")
-                        val lng = location.getDouble("lng")
-
-                        stores.add(StarbucksStore(name, address, placeId, lat, lng))
-                    }
-                }
-
-                withContext(Dispatchers.Main) {
-                    if (stores.isNotEmpty()) {
-                        showSearchResults(stores)
-                    } else {
-                        hideSearchResults()
-                        Toast.makeText(this@MainActivity, "該当する店舗が見つかりませんでした", Toast.LENGTH_SHORT).show()
-                    }
-                }
-
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    hideSearchResults()
-                    Toast.makeText(this@MainActivity, "検索に失敗しました: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
             }
         }
     }
@@ -275,30 +344,65 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         clearMarkers()
 
         // 選択された店舗のマーカーを追加
-        val marker = map.addMarker(
-            MarkerOptions()
-                .position(storeLocation)
-                .title(store.name)
-                .snippet("タップしてスタンプを獲得！")
-                .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN))
-        )
-        marker?.tag = store.placeId
-        markers.add(marker!!)
+        addStarbucksMarker(store, true)
 
         // 周辺のスターバックスも表示
-        loadNearbyStarbucks(storeLocation)
+        searchStarbucksNearLocation(storeLocation, "選択された場所")
     }
 
-    private fun addStarbucksMarker(place: Place, position: LatLng) {
+    private fun addStarbucksMarker(store: StarbucksStore, isSelected: Boolean = false) {
+        val markerColor = if (isSelected) BitmapDescriptorFactory.HUE_BLUE else BitmapDescriptorFactory.HUE_GREEN
+
         val marker = map.addMarker(
             MarkerOptions()
-                .position(position)
-                .title(place.name)
-                .snippet("タップしてスタンプを獲得！")
-                .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_GREEN))
+                .position(LatLng(store.latitude, store.longitude))
+                .title(store.name)
+                .snippet("タップして詳細を見る")
+                .icon(BitmapDescriptorFactory.defaultMarker(markerColor))
         )
-        marker?.tag = place.id
+
+        val storeInfo = StoreInfo(
+            placeId = store.placeId,
+            name = store.name,
+            address = store.address,
+            rating = store.rating,
+            latitude = store.latitude,
+            longitude = store.longitude
+        )
+
+        marker?.tag = storeInfo
         markers.add(marker!!)
+    }
+
+    // 店舗詳細ダイアログを表示
+    private fun showStoreDetailsDialog(storeInfo: StoreInfo) {
+        val hasStamp = stampsManager.hasStamp(storeInfo.placeId)
+
+        val message = buildString {
+            append("店舗名: ${storeInfo.name}\n")
+            append("住所: ${storeInfo.address}\n")
+            if (storeInfo.rating > 0) {
+                append("評価: ${String.format("%.1f", storeInfo.rating)} ★\n")
+            }
+            append("\n")
+            if (hasStamp) {
+                append("✅ この店舗のスタンプは獲得済みです")
+            } else {
+                append("スタンプを獲得しますか？")
+            }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("店舗情報")
+            .setMessage(message)
+            .setPositiveButton(if (hasStamp) "OK" else "スタンプ獲得") { _, _ ->
+                if (!hasStamp) {
+                    stampsManager.addStamp(storeInfo.placeId, storeInfo.name)
+                    Toast.makeText(this, "スタンプを獲得しました: ${storeInfo.name}", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("キャンセル", null)
+            .show()
     }
 
     private fun clearMarkers() {
@@ -320,3 +424,13 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
             }
         }
 }
+
+// 店舗情報を保持するデータクラス
+data class StoreInfo(
+    val placeId: String,
+    val name: String,
+    val address: String,
+    val rating: Double,
+    val latitude: Double,
+    val longitude: Double
+)
