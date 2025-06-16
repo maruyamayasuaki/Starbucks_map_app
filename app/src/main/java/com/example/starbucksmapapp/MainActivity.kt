@@ -264,13 +264,22 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                             addStarbucksMarker(store)
                         }
 
-                        Toast.makeText(this@MainActivity,
+                        // 検索結果リストを表示
+                        showSearchResults(stores)
+
+                        Toast.makeText(
+                            this@MainActivity,
                             "$locationName 周辺で${stores.size}店舗のスターバックスを発見しました",
-                            Toast.LENGTH_SHORT).show()
+                            Toast.LENGTH_SHORT
+                        ).show()
                     } else {
-                        Toast.makeText(this@MainActivity,
+                        hideSearchResults()
+
+                        Toast.makeText(
+                            this@MainActivity,
                             "$locationName 周辺にスターバックスが見つかりませんでした",
-                            Toast.LENGTH_SHORT).show()
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
                 }
 
