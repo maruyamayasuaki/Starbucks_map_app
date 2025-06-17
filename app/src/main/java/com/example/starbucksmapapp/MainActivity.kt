@@ -76,8 +76,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         searchResultsRecyclerView = findViewById(R.id.search_results)
 
         searchAdapter = SearchResultAdapter(emptyList()) { store ->
-            moveToStore(store)
             hideSearchResults()
+            moveToStore(store)
+            val info = StoreInfo(
+                placeId = store.placeId,
+                name = store.name,
+                address = store.address,
+                rating = store.rating,
+                latitude = store.latitude,
+                longitude = store.longitude
+            )
+            showStoreDetailsDialog(info)
         }
 
         searchResultsRecyclerView.apply {
@@ -128,6 +137,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         // マーカークリックリスナーを設定
         map.setOnMarkerClickListener { marker ->
             marker.showInfoWindow()
+            marker.tag?.let { tag ->
+                val info = tag as StoreInfo
+                showStoreDetailsDialog(info)
+            }
             true
         }
 
@@ -230,6 +243,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                         "?location=${location.latitude},${location.longitude}" +
                         "&radius=$radius" +
                         "&keyword=スターバックス" +
+                        "&language=ja" +
                         "&key=$apiKey"
 
                 val response = URL(placesUrl).readText()
@@ -263,14 +277,20 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                         stores.forEach { store ->
                             addStarbucksMarker(store)
                         }
+                        showSearchResults(stores)
 
-                        Toast.makeText(this@MainActivity,
+                        Toast.makeText(
+                            this@MainActivity,
                             "$locationName 周辺で${stores.size}店舗のスターバックスを発見しました",
-                            Toast.LENGTH_SHORT).show()
+                            Toast.LENGTH_SHORT
+                        ).show()
                     } else {
-                        Toast.makeText(this@MainActivity,
+                        hideSearchResults()
+                        Toast.makeText(
+                            this@MainActivity,
                             "$locationName 周辺にスターバックスが見つかりませんでした",
-                            Toast.LENGTH_SHORT).show()
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
                 }
 
