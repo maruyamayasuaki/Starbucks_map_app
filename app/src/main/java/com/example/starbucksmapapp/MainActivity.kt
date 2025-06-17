@@ -90,6 +90,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                 query?.let {
                     searchLocationAndStarbucks(it)
                     searchView.clearFocus()
+                    hideSearchResults()
                 }
                 return true
             }
@@ -128,6 +129,10 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         // マーカークリックリスナーを設定
         map.setOnMarkerClickListener { marker ->
             marker.showInfoWindow()
+            marker.tag?.let { tag ->
+                val storeInfo = tag as StoreInfo
+                showStoreDetailsDialog(storeInfo)
+            }
             true
         }
 
@@ -180,7 +185,11 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun searchLocationAndStarbucks(locationName: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val apiKey = BuildConfig.GOOGLE_PLACES_API_KEY
+                val apiKey = if (BuildConfig.GOOGLE_PLACES_API_KEY.isNotEmpty()) {
+                    BuildConfig.GOOGLE_PLACES_API_KEY
+                } else {
+                    BuildConfig.GOOGLE_MAPS_API_KEY
+                }
 
                 // まず場所を検索
                 val encodedLocation = URLEncoder.encode(locationName, "UTF-8")
@@ -223,13 +232,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun searchStarbucksNearLocation(location: LatLng, locationName: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val apiKey = BuildConfig.GOOGLE_PLACES_API_KEY
+                val apiKey = if (BuildConfig.GOOGLE_PLACES_API_KEY.isNotEmpty()) {
+                    BuildConfig.GOOGLE_PLACES_API_KEY
+                } else {
+                    BuildConfig.GOOGLE_MAPS_API_KEY
+                }
                 val radius = 5000 // 5km半径で検索
 
                 val placesUrl = "https://maps.googleapis.com/maps/api/place/nearbysearch/json" +
                         "?location=${location.latitude},${location.longitude}" +
                         "&radius=$radius" +
-                        "&keyword=スターバックス" +
+                        "&keyword=スターバックス|Starbucks" +
                         "&key=$apiKey"
 
                 val response = URL(placesUrl).readText()
@@ -264,10 +277,14 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                             addStarbucksMarker(store)
                         }
 
+                        // 検索結果をリスト表示
+                        showSearchResults(stores)
+
                         Toast.makeText(this@MainActivity,
                             "$locationName 周辺で${stores.size}店舗のスターバックスを発見しました",
                             Toast.LENGTH_SHORT).show()
                     } else {
+                        hideSearchResults()
                         Toast.makeText(this@MainActivity,
                             "$locationName 周辺にスターバックスが見つかりませんでした",
                             Toast.LENGTH_SHORT).show()
@@ -293,6 +310,7 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
         val placeResult = placesClient.findCurrentPlace(request)
         placeResult.addOnSuccessListener { response ->
             clearMarkers()
+            val stores = mutableListOf<StarbucksStore>()
             var starbucksCount = 0
 
             for (placeLikelihood in response.placeLikelihoods) {
@@ -308,14 +326,17 @@ class MainActivity : AppCompatActivity(), OnMapReadyCallback {
                             rating = place.rating ?: 0.0
                         )
                         addStarbucksMarker(store)
+                        stores.add(store)
                         starbucksCount++
                     }
                 }
             }
 
             if (starbucksCount == 0) {
+                hideSearchResults()
                 Toast.makeText(this, "近くにスターバックスが見つかりませんでした", Toast.LENGTH_SHORT).show()
             } else {
+                showSearchResults(stores)
                 Toast.makeText(this, "${starbucksCount}店舗のスターバックスを発見しました", Toast.LENGTH_SHORT).show()
             }
         }.addOnFailureListener { exception ->
